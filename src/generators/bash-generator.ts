@@ -14,13 +14,15 @@ export function generateBashStatusline(config: StatuslineConfig): string {
   const hasContext = config.features.includes('context')
 
   // Build usage feature config
+  // Cost and tokens come from Claude Code's native JSON - no ccusage needed
+  // Only session reset time requires ccusage
   const usageConfig = {
-    enabled: hasUsage && config.ccusageIntegration,
+    enabled: hasUsage,
     showCost: config.features.includes('usage'),
     showTokens: config.features.includes('tokens'),
     showBurnRate: config.features.includes('burnrate'),
-    showSession: config.features.includes('session'),
-    showProgressBar: config.theme !== 'minimal' && config.features.includes('session')
+    showSession: config.features.includes('session') && config.ccusageIntegration,
+    showProgressBar: config.theme !== 'minimal' && config.features.includes('session') && config.ccusageIntegration
   }
 
   // Build git feature config
@@ -232,11 +234,21 @@ if [ -n "$output_style" ] && [ "$output_style" != "null" ]; then
   printf '  🎨 %s%s%s' "$(style_color)" "$output_style" "$(rst)"
 fi
 
-# Line 2: Context and session time
+# Line 2: Context and git status
 line2=""${config.features.includes('context') ? `
 if [ -n "$context_pct" ]; then
   context_bar=$(progress_bar "$context_remaining_pct" 10)
-  line2="🧠 $(context_color)Context Remaining: \${context_pct} [\${context_bar}]$(rst)"
+  line2="$(context_color)[\${context_bar}]$(rst) $(context_color)\${context_pct}$(rst)"
+fi` : ''}${gitConfig.enabled ? `
+# Append git status counts (staged, unstaged, new)
+git_status_part=""
+if [ -n "$git_branch" ]; then
+  git_status_part="$(sep_color)|$(rst) $(staged_color)✓:$(rst) \${git_staged} $(sep_color)|$(rst) $(unstaged_color)✎:$(rst) \${git_unstaged} $(sep_color)|$(rst) $(newfile_color)+:$(rst) \${git_new}"
+fi
+if [ -n "$line2" ] && [ -n "$git_status_part" ]; then
+  line2="\${line2} \${git_status_part}"
+elif [ -n "$git_status_part" ]; then
+  line2="\${git_status_part}"
 fi` : ''}${usageConfig.showSession ? `
 if [ -n "$session_txt" ]; then
   if [ -n "$line2" ]; then
@@ -246,7 +258,7 @@ if [ -n "$session_txt" ]; then
   fi
 fi` : ''}${config.features.includes('context') ? `
 if [ -z "$line2" ] && [ -z "$context_pct" ]; then
-  line2="🧠 $(context_color)Context Remaining: TBD$(rst)"
+  line2="$(context_color)[----------]$(rst) $(context_color)--%$(rst)"
 fi` : ''}
 
 # Line 3: Cost and usage analytics

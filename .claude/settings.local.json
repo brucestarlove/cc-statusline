@@ -19,7 +19,8 @@
       "mcp__Ref__ref_read_url",
       "Bash(tree:*)",
       "Bash(find:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(/Users/bdr/Git/cc-statusline/.claude/statusline.sh)"
     ],
     "deny": [],
     "ask": []
