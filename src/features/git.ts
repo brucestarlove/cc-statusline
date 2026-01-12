@@ -24,15 +24,22 @@ staged_color() { :; }
 unstaged_color() { :; }
 newfile_color() { :; }
 sep_color() { :; }
+lines_added_color() { :; }
+lines_removed_color() { :; }
 `
 
   return `${colorCode}
+# ---- git diff line colors ----
+lines_added_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;114m'; fi; }   # green
+lines_removed_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;203m'; fi; } # red
 
 # ---- git ----
 git_branch=""
 git_staged=0
 git_unstaged=0
 git_new=0
+git_lines_added=0
+git_lines_removed=0
 if git rev-parse --git-dir >/dev/null 2>&1; then
   git_branch=$(git branch --show-current 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
   # Count staged files (index changes)
@@ -41,6 +48,10 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   git_unstaged=$(git diff --numstat 2>/dev/null | wc -l | tr -d ' ')
   # Count untracked files
   git_new=$(git ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+  # Count lines added/removed (staged + unstaged)
+  diff_stats=$(git diff --numstat HEAD 2>/dev/null | awk '{added+=$1; removed+=$2} END {print added+0, removed+0}')
+  git_lines_added=$(echo "$diff_stats" | cut -d' ' -f1)
+  git_lines_removed=$(echo "$diff_stats" | cut -d' ' -f2)
 fi`
 }
 

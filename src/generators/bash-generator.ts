@@ -251,6 +251,8 @@ if [ -n "$git_branch" ]; then
   printf '  🌿 %s%s%s' "$(git_color)" "$git_branch" "$(rst)"
   # Git status indicators on same line
   printf ' %s|%s %s✓:%s %s %s|%s %s✎:%s %s %s|%s %s+:%s %s' "$(sep_color)" "$(rst)" "$(staged_color)" "$(rst)" "\${git_staged}" "$(sep_color)" "$(rst)" "$(unstaged_color)" "$(rst)" "\${git_unstaged}" "$(sep_color)" "$(rst)" "$(newfile_color)" "$(rst)" "\${git_new}"
+  # Lines added/removed
+  printf ' %s|%s %s+%s%s %s-%s%s' "$(sep_color)" "$(rst)" "$(lines_added_color)" "\${git_lines_added}" "$(rst)" "$(lines_removed_color)" "\${git_lines_removed}" "$(rst)"
 fi` : ''}
 
 # Line 2: Model + Context with token breakdown + total tokens
