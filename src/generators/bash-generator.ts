@@ -163,9 +163,26 @@ fi
 
 function generateContextBashCode(colors: boolean): string {
   return `
+# ---- format tokens as k (thousands) ----
+fmt_tokens() {
+  local n="$1"
+  if [ -z "$n" ] || [ "$n" = "0" ]; then
+    echo "0"
+  elif [ "$n" -ge 1000 ]; then
+    awk "BEGIN {printf \\"%.1fk\\", $n/1000}"
+  else
+    echo "$n"
+  fi
+}
+
 # ---- context window calculation (native) ----
 context_pct=""
 context_remaining_pct=""
+context_used_fmt=""
+context_size_fmt=""
+ctx_input_fmt=""
+ctx_output_fmt=""
+ctx_cached_fmt=""
 context_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[1;37m'; fi; }  # default white
 
 if [ "$HAS_JQ" -eq 1 ]; then
@@ -173,10 +190,15 @@ if [ "$HAS_JQ" -eq 1 ]; then
   CONTEXT_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 200000' 2>/dev/null)
   USAGE=$(echo "$input" | jq '.context_window.current_usage' 2>/dev/null)
 
+  # Get total input/output tokens for display
+  TOTAL_INPUT=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0' 2>/dev/null)
+  TOTAL_OUTPUT=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0' 2>/dev/null)
+
   if [ "$USAGE" != "null" ] && [ -n "$USAGE" ]; then
     # Calculate current context from current_usage fields
     # Formula: input_tokens + cache_creation_input_tokens + cache_read_input_tokens
     CURRENT_TOKENS=$(echo "$USAGE" | jq '(.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)' 2>/dev/null)
+    CACHED_TOKENS=$(echo "$USAGE" | jq '(.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)' 2>/dev/null)
 
     if [ -n "$CURRENT_TOKENS" ] && [ "$CURRENT_TOKENS" -gt 0 ] 2>/dev/null; then
       context_used_pct=$(( CURRENT_TOKENS * 100 / CONTEXT_SIZE ))
@@ -195,6 +217,11 @@ if [ "$HAS_JQ" -eq 1 ]; then
       fi
 
       context_pct="\${context_remaining_pct}%"
+      context_used_fmt=$(fmt_tokens "$CURRENT_TOKENS")
+      context_size_fmt=$(fmt_tokens "$CONTEXT_SIZE")
+      ctx_input_fmt=$(fmt_tokens "$TOTAL_INPUT")
+      ctx_output_fmt=$(fmt_tokens "$TOTAL_OUTPUT")
+      ctx_cached_fmt=$(fmt_tokens "$CACHED_TOKENS")
     fi
   fi
 fi
@@ -218,37 +245,36 @@ function generateDisplaySection(config: StatuslineConfig, gitConfig: any, usageC
 
   return `
 # ---- render statusline ----
-# Line 1: Core info (directory, git, model, claude code version, output style)
+# Line 1: Directory, git branch + git status indicators
 ${config.features.includes('directory') ? `printf '📁 %s%s%s' "$(dir_color)" "$current_dir" "$(rst)"` : ''}${gitConfig.enabled ? `
 if [ -n "$git_branch" ]; then
   printf '  🌿 %s%s%s' "$(git_color)" "$git_branch" "$(rst)"
-fi` : ''}${config.features.includes('model') ? `
-printf '  🤖 %s%s%s' "$(model_color)" "$model_name" "$(rst)"
-if [ -n "$model_version" ] && [ "$model_version" != "null" ]; then
-  printf '  🏷️ %s%s%s' "$(version_color)" "$model_version" "$(rst)"
+  # Git status indicators on same line
+  printf ' %s|%s %s✓:%s %s %s|%s %s✎:%s %s %s|%s %s+:%s %s' "$(sep_color)" "$(rst)" "$(staged_color)" "$(rst)" "\${git_staged}" "$(sep_color)" "$(rst)" "$(unstaged_color)" "$(rst)" "\${git_unstaged}" "$(sep_color)" "$(rst)" "$(newfile_color)" "$(rst)" "\${git_new}"
 fi` : ''}
-if [ -n "$cc_version" ] && [ "$cc_version" != "null" ]; then
-  printf '  📟 %sv%s%s' "$(cc_version_color)" "$cc_version" "$(rst)"
-fi
-if [ -n "$output_style" ] && [ "$output_style" != "null" ]; then
-  printf '  🎨 %s%s%s' "$(style_color)" "$output_style" "$(rst)"
-fi
 
-# Line 2: Context and git status
-line2=""${config.features.includes('context') ? `
+# Line 2: Model + Context with token breakdown + total tokens
+line2=""${config.features.includes('model') ? `
+line2="🤖 $(model_color)\${model_name}$(rst)"` : ''}${config.features.includes('context') ? `
 if [ -n "$context_pct" ]; then
   context_bar=$(progress_bar "$context_remaining_pct" 10)
-  line2="$(context_color)[\${context_bar}]$(rst) $(context_color)\${context_pct}$(rst)"
-fi` : ''}${gitConfig.enabled ? `
-# Append git status counts (staged, unstaged, new)
-git_status_part=""
-if [ -n "$git_branch" ]; then
-  git_status_part="$(sep_color)|$(rst) $(staged_color)✓:$(rst) \${git_staged} $(sep_color)|$(rst) $(unstaged_color)✎:$(rst) \${git_unstaged} $(sep_color)|$(rst) $(newfile_color)+:$(rst) \${git_new}"
-fi
-if [ -n "$line2" ] && [ -n "$git_status_part" ]; then
-  line2="\${line2} \${git_status_part}"
-elif [ -n "$git_status_part" ]; then
-  line2="\${git_status_part}"
+  context_info="$(context_color)\${context_remaining_pct}%$(rst) $(context_color)[\${context_bar}]$(rst) $(context_color)\${context_used_fmt}/\${context_size_fmt}$(rst)"
+  token_breakdown="$(sep_color)|$(rst) In: \${ctx_input_fmt} $(sep_color)|$(rst) Out: \${ctx_output_fmt}"
+  if [ -n "$line2" ]; then
+    line2="\${line2}  \${context_info} \${token_breakdown}"
+  else
+    line2="\${context_info} \${token_breakdown}"
+  fi
+fi` : ''}${usageConfig.showTokens ? `
+# Append total tokens and tpm to line 2
+if [ -n "$tot_tokens" ] && [[ "$tot_tokens" =~ ^[0-9]+$ ]]; then${usageConfig.showBurnRate ? `
+  if [ -n "$tpm" ] && [[ "$tpm" =~ ^[0-9.]+$ ]]; then
+    tpm_formatted=$(printf '%.0f' "$tpm")
+    line2="\${line2} $(sep_color)|$(rst) 📊 $(usage_color)\${tot_tokens} tok (\${tpm_formatted} tpm)$(rst)"
+  else
+    line2="\${line2} $(sep_color)|$(rst) 📊 $(usage_color)\${tot_tokens} tok$(rst)"
+  fi` : `
+  line2="\${line2} $(sep_color)|$(rst) 📊 $(usage_color)\${tot_tokens} tok$(rst)"`}
 fi` : ''}${usageConfig.showSession ? `
 if [ -n "$session_txt" ]; then
   if [ -n "$line2" ]; then
@@ -257,11 +283,17 @@ if [ -n "$session_txt" ]; then
     line2="⌛ $(session_color)\${session_txt}$(rst) $(session_color)[\${session_bar}]$(rst)"
   fi
 fi` : ''}${config.features.includes('context') ? `
-if [ -z "$line2" ] && [ -z "$context_pct" ]; then
-  line2="$(context_color)[----------]$(rst) $(context_color)--%$(rst)"
+# Show fallback if context data not available
+if [ -z "$context_pct" ]; then
+  context_fallback="$(context_color)--% [----------] --/--$(rst)"
+  if [ -n "$line2" ]; then
+    line2="\${line2}  \${context_fallback}"
+  else
+    line2="\${context_fallback}"
+  fi
 fi` : ''}
 
-# Line 3: Cost and usage analytics
+# Line 3: Cost only
 line3=""${usageConfig.showCost ? `
 if [ -n "$cost_usd" ] && [[ "$cost_usd" =~ ^[0-9.]+$ ]]; then${usageConfig.showBurnRate ? `
   if [ -n "$cost_per_hour" ] && [[ "$cost_per_hour" =~ ^[0-9.]+$ ]]; then
@@ -271,27 +303,6 @@ if [ -n "$cost_usd" ] && [[ "$cost_usd" =~ ^[0-9.]+$ ]]; then${usageConfig.showB
     line3="💰 $(cost_color)\\$$(printf '%.2f' "$cost_usd")$(rst)"
   fi` : `
   line3="💰 $(cost_color)\\$$(printf '%.2f' "$cost_usd")$(rst)"`}
-fi` : ''}${usageConfig.showTokens ? `
-if [ -n "$tot_tokens" ] && [[ "$tot_tokens" =~ ^[0-9]+$ ]]; then${usageConfig.showBurnRate ? `
-  if [ -n "$tpm" ] && [[ "$tpm" =~ ^[0-9.]+$ ]]; then
-    tpm_formatted=$(printf '%.0f' "$tpm")
-    if [ -n "$line3" ]; then
-      line3="$line3  📊 $(usage_color)\${tot_tokens} tok (\${tpm_formatted} tpm)$(rst)"
-    else
-      line3="📊 $(usage_color)\${tot_tokens} tok (\${tpm_formatted} tpm)$(rst)"
-    fi
-  else
-    if [ -n "$line3" ]; then
-      line3="$line3  📊 $(usage_color)\${tot_tokens} tok$(rst)"
-    else
-      line3="📊 $(usage_color)\${tot_tokens} tok$(rst)"
-    fi
-  fi` : `
-  if [ -n "$line3" ]; then
-    line3="$line3  📊 $(usage_color)\${tot_tokens} tok$(rst)"
-  else
-    line3="📊 $(usage_color)\${tot_tokens} tok$(rst)"
-  fi`}
 fi` : ''}
 
 # Print lines
