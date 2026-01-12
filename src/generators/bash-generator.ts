@@ -175,6 +175,10 @@ fmt_tokens() {
   fi
 }
 
+# ---- session duration from transcript ----
+session_duration=""
+session_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;117m'; fi; }  # sky blue
+
 # ---- context window calculation (native) ----
 context_pct=""
 context_remaining_pct=""
@@ -224,6 +228,45 @@ if [ "$HAS_JQ" -eq 1 ]; then
       ctx_cached_fmt=$(fmt_tokens "$CACHED_TOKENS")
     fi
   fi
+
+  # Calculate session duration from transcript timestamps
+  TRANSCRIPT_PATH=$(echo "$input" | jq -r '.transcript_path // ""' 2>/dev/null)
+  if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+    # Get first and last timestamps using jq directly on the file
+    first_ts=$(head -50 "$TRANSCRIPT_PATH" | jq -r 'select(.timestamp) | .timestamp' 2>/dev/null | head -1)
+    last_ts=$(tail -50 "$TRANSCRIPT_PATH" | jq -r 'select(.timestamp) | .timestamp' 2>/dev/null | tail -1)
+
+    # Calculate duration if both timestamps exist
+    if [ -n "$first_ts" ] && [ -n "$last_ts" ]; then
+      # Parse ISO timestamps - try macOS format first, then Linux
+      first_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "\${first_ts%%.*}" +%s 2>/dev/null)
+      if [ -z "$first_epoch" ]; then
+        first_epoch=$(date -d "$first_ts" +%s 2>/dev/null)
+      fi
+      last_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "\${last_ts%%.*}" +%s 2>/dev/null)
+      if [ -z "$last_epoch" ]; then
+        last_epoch=$(date -d "$last_ts" +%s 2>/dev/null)
+      fi
+
+      if [ -n "$first_epoch" ] && [ -n "$last_epoch" ] && [ "$last_epoch" -ge "$first_epoch" ]; then
+        duration_sec=$((last_epoch - first_epoch))
+        if [ "$duration_sec" -lt 60 ]; then
+          session_duration="<1m"
+        else
+          duration_min=$((duration_sec / 60))
+          hours=$((duration_min / 60))
+          mins=$((duration_min % 60))
+          if [ "$hours" -eq 0 ]; then
+            session_duration="\${mins}m"
+          elif [ "$mins" -eq 0 ]; then
+            session_duration="\${hours}h"
+          else
+            session_duration="\${hours}h \${mins}m"
+          fi
+        fi
+      fi
+    fi
+  fi
 fi
 `
 }
@@ -259,24 +302,14 @@ fi` : ''}
 line2=""${config.features.includes('model') ? `
 line2="🤖 $(model_color)\${model_name}$(rst)"` : ''}${config.features.includes('context') ? `
 if [ -n "$context_pct" ]; then
-  context_bar=$(progress_bar "$context_remaining_pct" 10)
-  context_info="$(context_color)\${context_remaining_pct}%$(rst) $(context_color)[\${context_bar}]$(rst) $(context_color)\${context_used_fmt}/\${context_size_fmt}$(rst)"
+  context_bar=$(progress_bar "$context_used_pct" 10)
+  context_info="$(context_color)\${context_used_pct}%$(rst) \${context_bar} $(context_color)\${context_used_fmt}/\${context_size_fmt}$(rst)"
   token_breakdown="$(sep_color)|$(rst) In: \${ctx_input_fmt} $(sep_color)|$(rst) Out: \${ctx_output_fmt}"
   if [ -n "$line2" ]; then
     line2="\${line2}  \${context_info} \${token_breakdown}"
   else
     line2="\${context_info} \${token_breakdown}"
   fi
-fi` : ''}${usageConfig.showTokens ? `
-# Append total tokens and tpm to line 2
-if [ -n "$tot_tokens" ] && [[ "$tot_tokens" =~ ^[0-9]+$ ]]; then${usageConfig.showBurnRate ? `
-  if [ -n "$tpm" ] && [[ "$tpm" =~ ^[0-9.]+$ ]]; then
-    tpm_formatted=$(printf '%.0f' "$tpm")
-    line2="\${line2} $(sep_color)|$(rst) 📊 $(usage_color)\${tot_tokens} tok (\${tpm_formatted} tpm)$(rst)"
-  else
-    line2="\${line2} $(sep_color)|$(rst) 📊 $(usage_color)\${tot_tokens} tok$(rst)"
-  fi` : `
-  line2="\${line2} $(sep_color)|$(rst) 📊 $(usage_color)\${tot_tokens} tok$(rst)"`}
 fi` : ''}${usageConfig.showSession ? `
 if [ -n "$session_txt" ]; then
   if [ -n "$line2" ]; then
@@ -287,7 +320,7 @@ if [ -n "$session_txt" ]; then
 fi` : ''}${config.features.includes('context') ? `
 # Show fallback if context data not available
 if [ -z "$context_pct" ]; then
-  context_fallback="$(context_color)--% [----------] --/--$(rst)"
+  context_fallback="$(context_color)--% ░░░░░░░░░░ --/--$(rst)"
   if [ -n "$line2" ]; then
     line2="\${line2}  \${context_fallback}"
   else
@@ -295,7 +328,7 @@ if [ -z "$context_pct" ]; then
   fi
 fi` : ''}
 
-# Line 3: Cost only
+# Line 3: Cost + Session duration
 line3=""${usageConfig.showCost ? `
 if [ -n "$cost_usd" ] && [[ "$cost_usd" =~ ^[0-9.]+$ ]]; then${usageConfig.showBurnRate ? `
   if [ -n "$cost_per_hour" ] && [[ "$cost_per_hour" =~ ^[0-9.]+$ ]]; then
@@ -306,6 +339,14 @@ if [ -n "$cost_usd" ] && [[ "$cost_usd" =~ ^[0-9.]+$ ]]; then${usageConfig.showB
   fi` : `
   line3="💰 $(cost_color)\\$$(printf '%.2f' "$cost_usd")$(rst)"`}
 fi` : ''}
+# Append session duration
+if [ -n "$session_duration" ]; then
+  if [ -n "$line3" ]; then
+    line3="\${line3}  ⏱️  $(session_color)\${session_duration}$(rst)"
+  else
+    line3="⏱️ $(session_color)\${session_duration}$(rst)"
+  fi
+fi
 
 # Print lines
 if [ -n "$line2" ]; then
