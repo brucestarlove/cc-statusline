@@ -177,7 +177,12 @@ fmt_tokens() {
 
 # ---- session duration from transcript ----
 session_duration=""
-session_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;117m'; fi; }  # sky blue
+# Session color as variable
+if [ "$use_color" -eq 1 ]; then
+  CLR_SESSION=$'\\033[38;5;117m'  # sky blue
+else
+  CLR_SESSION=""
+fi
 
 # ---- context window calculation (native) ----
 context_pct=""
@@ -187,7 +192,8 @@ context_size_fmt=""
 ctx_input_fmt=""
 ctx_output_fmt=""
 ctx_cached_fmt=""
-context_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[1;37m'; fi; }  # default white
+# Context color - will be set dynamically based on percentage
+CLR_CTX=$'\\033[1;37m'  # default white
 
 if [ "$HAS_JQ" -eq 1 ]; then
   # Get context window size and current usage from native Claude Code input
@@ -212,12 +218,14 @@ if [ "$HAS_JQ" -eq 1 ]; then
       (( context_remaining_pct > 100 )) && context_remaining_pct=100
 
       # Set color based on remaining percentage
-      if [ "$context_remaining_pct" -le 20 ]; then
-        context_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;203m'; fi; }  # coral red
-      elif [ "$context_remaining_pct" -le 40 ]; then
-        context_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;215m'; fi; }  # peach
-      else
-        context_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;158m'; fi; }  # mint green
+      if [ "$use_color" -eq 1 ]; then
+        if [ "$context_remaining_pct" -le 20 ]; then
+          CLR_CTX=$'\\033[38;5;203m'  # coral red
+        elif [ "$context_remaining_pct" -le 40 ]; then
+          CLR_CTX=$'\\033[38;5;215m'  # peach
+        else
+          CLR_CTX=$'\\033[38;5;158m'  # mint green
+        fi
       fi
 
       context_pct="\${context_remaining_pct}%"
@@ -289,22 +297,22 @@ function generateDisplaySection(config: StatuslineConfig, gitConfig: any, usageC
   return `
 # ---- render statusline ----
 # Line 1: Directory, git branch + git status indicators
-${config.features.includes('directory') ? `printf '📁 %s%s%s' "$(dir_color)" "$current_dir" "$(rst)"` : ''}${gitConfig.enabled ? `
+${config.features.includes('directory') ? `printf '📁 %b%s%b' "\$CLR_DIR" "$current_dir" "\$CLR_RST"` : ''}${gitConfig.enabled ? `
 if [ -n "$git_branch" ]; then
-  printf '  🌿 %s%s%s' "$(git_color)" "$git_branch" "$(rst)"
-  # Git status indicators on same line
-  printf ' %s|%s %s✓:%s %s %s|%s %s✎:%s %s %s|%s %s+:%s %s' "$(sep_color)" "$(rst)" "$(staged_color)" "$(rst)" "\${git_staged}" "$(sep_color)" "$(rst)" "$(unstaged_color)" "$(rst)" "\${git_unstaged}" "$(sep_color)" "$(rst)" "$(newfile_color)" "$(rst)" "\${git_new}"
+  printf '  🌿 %b%s%b' "\$CLR_GIT" "$git_branch" "\$CLR_RST"
+  # Git status indicators on same line - use %b for escape sequences
+  printf ' %b|%b %b✓:%b %s %b|%b %b✎:%b %s %b|%b %b+:%b %s' "\$CLR_SEP" "\$CLR_RST" "\$CLR_STAGED" "\$CLR_RST" "\${git_staged}" "\$CLR_SEP" "\$CLR_RST" "\$CLR_UNSTAGED" "\$CLR_RST" "\${git_unstaged}" "\$CLR_SEP" "\$CLR_RST" "\$CLR_NEWFILE" "\$CLR_RST" "\${git_new}"
   # Lines added/removed
-  printf ' %s|%s %s+%s%s %s-%s%s' "$(sep_color)" "$(rst)" "$(lines_added_color)" "\${git_lines_added}" "$(rst)" "$(lines_removed_color)" "\${git_lines_removed}" "$(rst)"
+  printf ' %b|%b %b+%s%b %b-%s%b' "\$CLR_SEP" "\$CLR_RST" "\$CLR_LINES_ADD" "\${git_lines_added}" "\$CLR_RST" "\$CLR_LINES_REM" "\${git_lines_removed}" "\$CLR_RST"
 fi` : ''}
 
 # Line 2: Model + Context with token breakdown + total tokens
 line2=""${config.features.includes('model') ? `
-line2="🤖 $(model_color)\${model_name}$(rst)"` : ''}${config.features.includes('context') ? `
+line2="🤖 \${CLR_MODEL}\${model_name}\${CLR_RST}"` : ''}${config.features.includes('context') ? `
 if [ -n "$context_pct" ]; then
   context_bar=$(progress_bar "$context_used_pct" 10)
-  context_info="$(context_color)\${context_used_pct}%$(rst) \${context_bar} $(context_color)\${context_used_fmt}/\${context_size_fmt}$(rst)"
-  token_breakdown="$(sep_color)|$(rst) In: \${ctx_input_fmt} $(sep_color)|$(rst) Out: \${ctx_output_fmt}"
+  context_info="\${CLR_CTX}\${context_used_pct}%\${CLR_RST} \${context_bar} \${CLR_CTX}\${context_used_fmt}/\${context_size_fmt}\${CLR_RST}"
+  token_breakdown="\${CLR_SEP}|\${CLR_RST} In: \${ctx_input_fmt} \${CLR_SEP}|\${CLR_RST} Out: \${ctx_output_fmt}"
   if [ -n "$line2" ]; then
     line2="\${line2}  \${context_info} \${token_breakdown}"
   else
@@ -313,14 +321,14 @@ if [ -n "$context_pct" ]; then
 fi` : ''}${usageConfig.showSession ? `
 if [ -n "$session_txt" ]; then
   if [ -n "$line2" ]; then
-    line2="$line2  ⌛ $(session_color)\${session_txt}$(rst) $(session_color)[\${session_bar}]$(rst)"
+    line2="$line2  ⌛ \${CLR_SESSION}\${session_txt}\${CLR_RST} \${CLR_SESSION}[\${session_bar}]\${CLR_RST}"
   else
-    line2="⌛ $(session_color)\${session_txt}$(rst) $(session_color)[\${session_bar}]$(rst)"
+    line2="⌛ \${CLR_SESSION}\${session_txt}\${CLR_RST} \${CLR_SESSION}[\${session_bar}]\${CLR_RST}"
   fi
 fi` : ''}${config.features.includes('context') ? `
 # Show fallback if context data not available
 if [ -z "$context_pct" ]; then
-  context_fallback="$(context_color)--% ░░░░░░░░░░ --/--$(rst)"
+  context_fallback="\${CLR_CTX}--% ░░░░░░░░░░ --/--\${CLR_RST}"
   if [ -n "$line2" ]; then
     line2="\${line2}  \${context_fallback}"
   else
@@ -333,27 +341,27 @@ line3=""${usageConfig.showCost ? `
 if [ -n "$cost_usd" ] && [[ "$cost_usd" =~ ^[0-9.]+$ ]]; then${usageConfig.showBurnRate ? `
   if [ -n "$cost_per_hour" ] && [[ "$cost_per_hour" =~ ^[0-9.]+$ ]]; then
     cost_per_hour_formatted=$(printf '%.2f' "$cost_per_hour")
-    line3="💰 $(cost_color)\\$$(printf '%.2f' "$cost_usd")$(rst) ($(burn_color)\\$\${cost_per_hour_formatted}/h$(rst))"
+    line3="💰 \${CLR_COST}\\$$(printf '%.2f' "$cost_usd")\${CLR_RST} (\${CLR_BURN}\\$\${cost_per_hour_formatted}/h\${CLR_RST})"
   else
-    line3="💰 $(cost_color)\\$$(printf '%.2f' "$cost_usd")$(rst)"
+    line3="💰 \${CLR_COST}\\$$(printf '%.2f' "$cost_usd")\${CLR_RST}"
   fi` : `
-  line3="💰 $(cost_color)\\$$(printf '%.2f' "$cost_usd")$(rst)"`}
+  line3="💰 \${CLR_COST}\\$$(printf '%.2f' "$cost_usd")\${CLR_RST}"`}
 fi` : ''}
 # Append session duration
 if [ -n "$session_duration" ]; then
   if [ -n "$line3" ]; then
-    line3="\${line3}  ⏱️  $(session_color)\${session_duration}$(rst)"
+    line3="\${line3}  ⏱️  \${CLR_SESSION}\${session_duration}\${CLR_RST}"
   else
-    line3="⏱️ $(session_color)\${session_duration}$(rst)"
+    line3="⏱️ \${CLR_SESSION}\${session_duration}\${CLR_RST}"
   fi
 fi
 
-# Print lines
+# Print lines - use %b to interpret escape sequences in color variables
 if [ -n "$line2" ]; then
-  printf '\\n%s' "$line2"
+  printf '\\n%b' "$line2"
 fi
 if [ -n "$line3" ]; then
-  printf '\\n%s' "$line3"
+  printf '\\n%b' "$line3"
 fi
 printf '\\n'`
 }

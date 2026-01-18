@@ -9,30 +9,25 @@ export function generateGitBashCode(config: GitFeature, colors: boolean): string
   if (!config.enabled) return ''
 
   const colorCode = colors ? `
-# ---- git colors ----
-git_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;150m'; fi; }  # soft green
-rst() { if [ "$use_color" -eq 1 ]; then printf '\\033[0m'; fi; }
-# ---- git status colors ----
-staged_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;114m'; fi; }    # green
-unstaged_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;215m'; fi; }  # orange/peach
-newfile_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;81m'; fi; }    # cyan
-sep_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;245m'; fi; }       # gray
+# ---- git colors (as variables) ----
+if [ "$use_color" -eq 1 ]; then
+  CLR_GIT=$'\\033[38;5;150m'        # soft green
+  CLR_STAGED=$'\\033[38;5;114m'     # green
+  CLR_UNSTAGED=$'\\033[38;5;215m'   # orange/peach
+  CLR_NEWFILE=$'\\033[38;5;81m'     # cyan
+  CLR_SEP=$'\\033[38;5;245m'        # gray
+  CLR_LINES_ADD=$'\\033[38;5;114m'  # green
+  CLR_LINES_REM=$'\\033[38;5;203m'  # red
+else
+  CLR_GIT=""; CLR_STAGED=""; CLR_UNSTAGED=""; CLR_NEWFILE=""; CLR_SEP=""
+  CLR_LINES_ADD=""; CLR_LINES_REM=""
+fi
 ` : `
-git_color() { :; }
-rst() { :; }
-staged_color() { :; }
-unstaged_color() { :; }
-newfile_color() { :; }
-sep_color() { :; }
-lines_added_color() { :; }
-lines_removed_color() { :; }
+CLR_GIT=""; CLR_STAGED=""; CLR_UNSTAGED=""; CLR_NEWFILE=""; CLR_SEP=""
+CLR_LINES_ADD=""; CLR_LINES_REM=""
 `
 
   return `${colorCode}
-# ---- git diff line colors ----
-lines_added_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;114m'; fi; }   # green
-lines_removed_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;203m'; fi; } # red
-
 # ---- git ----
 git_branch=""
 git_staged=0
@@ -63,7 +58,7 @@ export function generateGitDisplayCode(config: GitFeature, colors: boolean, emoj
   let displayCode = `
 # git display
 if [ -n "$git_branch" ]; then
-  printf '  ${branchEmoji} %s%s%s' "$(git_color)" "$git_branch" "$(rst)"
+  printf '  ${branchEmoji} %b%s%b' "\$CLR_GIT" "$git_branch" "\$CLR_RST"
 fi`
 
   return displayCode

@@ -11,22 +11,27 @@ export function generateUsageBashCode(config: UsageFeature, colors: boolean): st
   if (!config.enabled) return ''
 
   const colorCode = colors ? `
-# ---- usage colors ----
-usage_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;189m'; fi; }  # lavender
-cost_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;222m'; fi; }   # light gold
-burn_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;220m'; fi; }   # bright gold
-session_reset_color() {
-  rem_pct=$(( 100 - session_pct ))
-  if   (( rem_pct <= 10 )); then SCLR='38;5;210'  # light pink
-  elif (( rem_pct <= 25 )); then SCLR='38;5;228'  # light yellow
-  else                          SCLR='38;5;194'; fi  # light green
-  if [ "$use_color" -eq 1 ]; then printf '\\033[%sm' "$SCLR"; fi
+# ---- usage colors (as variables) ----
+if [ "$use_color" -eq 1 ]; then
+  CLR_USAGE=$'\\033[38;5;189m'    # lavender
+  CLR_COST=$'\\033[38;5;222m'     # light gold
+  CLR_BURN=$'\\033[38;5;220m'     # bright gold
+else
+  CLR_USAGE=""; CLR_COST=""; CLR_BURN=""
+fi
+
+# Session reset color is dynamic based on percentage
+get_session_reset_color() {
+  if [ "$use_color" -eq 1 ]; then
+    local rem_pct=$(( 100 - session_pct ))
+    if   (( rem_pct <= 10 )); then printf '%s' $'\\033[38;5;210m'  # light pink
+    elif (( rem_pct <= 25 )); then printf '%s' $'\\033[38;5;228m'  # light yellow
+    else                           printf '%s' $'\\033[38;5;194m'; fi  # light green
+  fi
 }
 ` : `
-usage_color() { :; }
-cost_color() { :; }
-burn_color() { :; }
-session_reset_color() { :; }
+CLR_USAGE=""; CLR_COST=""; CLR_BURN=""
+get_session_reset_color() { :; }
 `
 
   // Session reset time is the only feature requiring ccusage
@@ -148,26 +153,29 @@ progress_bar() {
   filled=$(( pct * width / 100 )); empty=$(( width - filled ))
 
   # Color gradient based on usage (green -> yellow -> red as it fills up)
+  # Use $'...' syntax for pre-computed escape sequences
   if [ "$use_color" -eq 1 ]; then
     if [ "$pct" -gt 70 ]; then
-      bar_color='\\033[38;5;203m'   # red/coral - danger (>70% used)
+      bar_color=$'\\033[38;5;203m'   # red/coral - danger (>70% used)
     elif [ "$pct" -gt 40 ]; then
-      bar_color='\\033[38;5;222m'   # yellow/gold - caution (40-70% used)
+      bar_color=$'\\033[38;5;222m'   # yellow/gold - caution (40-70% used)
     else
-      bar_color='\\033[38;5;114m'   # green - healthy (<40% used)
+      bar_color=$'\\033[38;5;114m'   # green - healthy (<40% used)
     fi
-    dim_color='\\033[38;5;239m'     # dark gray for empty
-    reset='\\033[0m'
+    dim_color=$'\\033[38;5;239m'     # dark gray for empty
+    reset=$'\\033[0m'
   else
     bar_color=''; dim_color=''; reset=''
   fi
 
-  # Use Unicode blocks for a sleek look: ▓ for filled, ░ for empty
-  printf "%b" "$bar_color"
-  for ((i=0; i<filled; i++)); do printf '▓'; done
-  printf "%b%b" "$reset" "$dim_color"
-  for ((i=0; i<empty; i++)); do printf '░'; done
-  printf "%b" "$reset"
+  # Build the entire bar as a single string to prevent fragmentation
+  local bar_str=""
+  for ((i=0; i<filled; i++)); do bar_str+='▓'; done
+  local empty_str=""
+  for ((i=0; i<empty; i++)); do empty_str+='░'; done
+
+  # Output atomically with printf %b for escape interpretation
+  printf '%b%s%b%b%s%b' "$bar_color" "$bar_str" "$reset" "$dim_color" "$empty_str" "$reset"
 }`
 }
 
@@ -181,8 +189,9 @@ export function generateUsageDisplayCode(config: UsageFeature, colors: boolean, 
     displayCode += `
 # session time
 if [ -n "$session_txt" ]; then
-  printf '  ${sessionEmoji} %s%s%s' "$(session_reset_color)" "$session_txt" "$(rst)"${config.showProgressBar ? `
-  printf '  %s[%s]%s' "$(session_reset_color)" "$session_bar" "$(rst)"` : ''}
+  session_clr=$(get_session_reset_color)
+  printf '  ${sessionEmoji} %b%s%b' "\$session_clr" "$session_txt" "\$CLR_RST"${config.showProgressBar ? `
+  printf '  %b[%s]%b' "\$session_clr" "$session_bar" "\$CLR_RST"` : ''}
 fi`
   }
 
@@ -192,9 +201,9 @@ fi`
 # cost
 if [ -n "$cost_usd" ] && [[ "$cost_usd" =~ ^[0-9.]+$ ]]; then
   if [ -n "$cost_per_hour" ] && [[ "$cost_per_hour" =~ ^[0-9.]+$ ]]; then
-    printf '  ${costEmoji} %s$%.2f ($%.2f/h)%s' "$(cost_color)" "$cost_usd" "$cost_per_hour" "$(rst)"
+    printf '  ${costEmoji} %b$%.2f ($%.2f/h)%b' "\$CLR_COST" "$cost_usd" "$cost_per_hour" "\$CLR_RST"
   else
-    printf '  ${costEmoji} %s$%.2f%s' "$(cost_color)" "$cost_usd" "$(rst)"
+    printf '  ${costEmoji} %b$%.2f%b' "\$CLR_COST" "$cost_usd" "\$CLR_RST"
   fi
 fi`
   }
@@ -205,9 +214,9 @@ fi`
 # tokens
 if [ -n "$tot_tokens" ] && [[ "$tot_tokens" =~ ^[0-9]+$ ]]; then
   if [ -n "$tpm" ] && [[ "$tpm" =~ ^[0-9.]+$ ]] && ${config.showBurnRate ? 'true' : 'false'}; then
-    printf '  ${tokenEmoji} %s%s tok (%.0f tpm)%s' "$(usage_color)" "$tot_tokens" "$tpm" "$(rst)"
+    printf '  ${tokenEmoji} %b%s tok (%.0f tpm)%b' "\$CLR_USAGE" "$tot_tokens" "$tpm" "\$CLR_RST"
   else
-    printf '  ${tokenEmoji} %s%s tok%s' "$(usage_color)" "$tot_tokens" "$(rst)"
+    printf '  ${tokenEmoji} %b%s tok%b' "\$CLR_USAGE" "$tot_tokens" "\$CLR_RST"
   fi
 fi`
   }

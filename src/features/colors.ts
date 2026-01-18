@@ -6,32 +6,38 @@ export interface ColorConfig {
 export function generateColorBashCode(config: ColorConfig): string {
   if (!config.enabled) {
     return `
-# ---- color helpers (disabled) ----
+# ---- color variables (disabled) ----
 use_color=0
-C() { :; }
-RST() { :; }
+CLR_RST=""
 `
   }
 
   return `
-# ---- color helpers (force colors for Claude Code) ----
+# ---- color variables (force colors for Claude Code) ----
 use_color=1
 [ -n "$NO_COLOR" ] && use_color=0
 
-C() { if [ "$use_color" -eq 1 ]; then printf '\\033[%sm' "$1"; fi; }
-RST() { if [ "$use_color" -eq 1 ]; then printf '\\033[0m'; fi; }
+# Pre-compute color codes as variables to prevent escape sequence fragmentation
+if [ "$use_color" -eq 1 ]; then
+  CLR_RST=$'\\033[0m'
+else
+  CLR_RST=""
+fi
 `
 }
 
 export function generateBasicColors(): string {
   return `
-# ---- modern sleek colors ----
-dir_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;117m'; fi; }    # sky blue
-model_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;147m'; fi; }  # light purple  
-version_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;180m'; fi; } # soft yellow
-cc_version_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;249m'; fi; } # light gray
-style_color() { if [ "$use_color" -eq 1 ]; then printf '\\033[38;5;245m'; fi; } # gray
-rst() { if [ "$use_color" -eq 1 ]; then printf '\\033[0m'; fi; }
+# ---- modern sleek colors (as variables) ----
+if [ "$use_color" -eq 1 ]; then
+  CLR_DIR=$'\\033[38;5;117m'      # sky blue
+  CLR_MODEL=$'\\033[38;5;147m'    # light purple
+  CLR_VERSION=$'\\033[38;5;180m'  # soft yellow
+  CLR_CC_VER=$'\\033[38;5;249m'   # light gray
+  CLR_STYLE=$'\\033[38;5;245m'    # gray
+else
+  CLR_DIR=""; CLR_MODEL=""; CLR_VERSION=""; CLR_CC_VER=""; CLR_STYLE=""
+fi
 `
 }
 
