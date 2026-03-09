@@ -300,10 +300,6 @@ function generateDisplaySection(config: StatuslineConfig, gitConfig: any, usageC
 ${config.features.includes('directory') ? `printf '📁 %b%s%b' "\$CLR_DIR" "$current_dir" "\$CLR_RST"` : ''}${gitConfig.enabled ? `
 if [ -n "$git_branch" ]; then
   printf '  🌿 %b%s%b' "\$CLR_GIT" "$git_branch" "\$CLR_RST"
-  # Git status indicators on same line - use %b for escape sequences
-  printf ' %b|%b %b✓:%b %s %b|%b %b✎:%b %s %b|%b %b+:%b %s' "\$CLR_SEP" "\$CLR_RST" "\$CLR_STAGED" "\$CLR_RST" "\${git_staged}" "\$CLR_SEP" "\$CLR_RST" "\$CLR_UNSTAGED" "\$CLR_RST" "\${git_unstaged}" "\$CLR_SEP" "\$CLR_RST" "\$CLR_NEWFILE" "\$CLR_RST" "\${git_new}"
-  # Lines added/removed
-  printf ' %b|%b %b+%s%b %b-%s%b' "\$CLR_SEP" "\$CLR_RST" "\$CLR_LINES_ADD" "\${git_lines_added}" "\$CLR_RST" "\$CLR_LINES_REM" "\${git_lines_removed}" "\$CLR_RST"
 fi` : ''}
 
 # Line 2: Model + Context with token breakdown + total tokens
